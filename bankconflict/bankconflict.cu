@@ -2,7 +2,8 @@
 #include <cuda_runtime.h>
 #include "utils.hpp"
 
-#define N 1024 // Size of the array
+#define N 32 // Threads number. The max number of threads in a block is 1024
+#define SHM_NUM N * N 
 
 #define CHECK_CUDA_ERROR(func) \
     do { \
@@ -15,35 +16,37 @@
     } while(0)
 
 
-__global__ void kernel(int* array, int stride, int* out) {
-    __shared__ int sharedArray[N * 12];
+__global__ void kernel(int stride, int* out) {
+    volatile int sharedArray[SHM_NUM];
 
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     
     // Each thread loads its corresponding element into shared memory
-    sharedArray[tid] = array[tid];
-
+    for (int i = 0; i < SHM_NUM/N; i++) {
+        sharedArray[tid * SHM_NUM/N + i] = 1;
+    }
     __syncthreads();
 
     // Simulate a read operation from shared memory
-    out[tid] = sharedArray[tid] + sharedArray[tid + stride];
+    for (int i = 0; i < 10000; ++i) {
+        out[tid] = sharedArray[tid] + sharedArray[(tid + stride) & (SHM_NUM-1)];
+    }
 }
 
 int main(int argc, char** argv) {
-    int h_in[N];
     int h_out[N];
     auto [stride, iteration] = parseCommandLineArguments(argc, argv);
 
     printf("begin with stride=%d, iteration=%d\n", stride, iteration);
 
-    // Initialize array data
-    for (int i = 0; i < N; ++i) {
-        h_in[i] = 1;
-    }
+    // query shared memory bank size
+    cudaSharedMemConfig sharedMemConfig;
 
-    int *d_in, *d_out;
-    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_in, N * sizeof(int)));
-    CHECK_CUDA_ERROR(cudaMemcpy(d_in, h_in, N * sizeof(int), cudaMemcpyHostToDevice));
+    // set it to four, just in case
+    CHECK_CUDA_ERROR(cudaDeviceGetSharedMemConfig(&sharedMemConfig));
+    printf("sharedMemConfig = %d\n", sharedMemConfig);
+
+    int *d_out;
     CHECK_CUDA_ERROR(cudaMalloc((void**)&d_out, N * sizeof(int)));
 
     dim3 threadsPerBlock(N);
@@ -54,8 +57,8 @@ int main(int argc, char** argv) {
     CHECK_CUDA_ERROR(cudaEventCreate(&end));
 
     CHECK_CUDA_ERROR(cudaEventRecord(start));
-    kernel<<<numBlocks, threadsPerBlock>>>(d_in, stride, d_out);
     for (int i = 0; i < iteration; i++){
+        kernel<<<numBlocks, threadsPerBlock>>>(stride, d_out);
         cudaError_t err = cudaGetLastError();
 
         if (err != cudaSuccess){
@@ -78,8 +81,6 @@ int main(int argc, char** argv) {
 
     CHECK_CUDA_ERROR(cudaEventDestroy(start));
     CHECK_CUDA_ERROR(cudaEventDestroy(end));
-
-    CHECK_CUDA_ERROR(cudaFree(d_in));
 
     return 0;
 }

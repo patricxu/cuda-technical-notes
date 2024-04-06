@@ -20,21 +20,19 @@ __global__ void reduce0(int *g_idata, int *g_odata) {
     extern __shared__ int sdata[];
     // each thread loads one element from global to shared mem
     unsigned int tid = threadIdx.x;
-    unsigned int i = blockIdx.x*blockDim.x + threadIdx.x;
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     sdata[tid] = g_idata[i];
     __syncthreads();
     // do reduction in shared mem
     for(unsigned int s=1; s < blockDim.x; s *= 2) {
-    if (tid % (2*s) == 0) {
-    sdata[tid] += sdata[tid + s];
-    }
-    __syncthreads();
+        if (tid % (2*s) == 0) {
+            sdata[tid] += sdata[tid + s];
+        }
+        __syncthreads();
     }
     // write result for this block to global mem
-    if (tid == 0) 
-    {
+    if (tid == 0){
         g_odata[blockIdx.x] = sdata[0];
-        // printf("result=%d\n", sdata[0]);
     }
 }
 
@@ -43,7 +41,7 @@ __global__ void reduce1(int *g_idata, int *g_odata) {
     extern __shared__ int sdata[];
     // each thread loads one element from global to shared mem
     unsigned int tid = threadIdx.x;
-    unsigned int i = blockIdx.x*blockDim.x + threadIdx.x;
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     sdata[tid] = g_idata[i];
     __syncthreads();
     // do reduction in shared mem
@@ -55,10 +53,8 @@ __global__ void reduce1(int *g_idata, int *g_odata) {
         __syncthreads();
     }
     // write result for this block to global mem
-    if (tid == 0) 
-    {
+    if (tid == 0) {
         g_odata[blockIdx.x] = sdata[0];
-        // printf("result=%d\n", sdata[0]);
     }
 }
 
@@ -67,7 +63,7 @@ __global__ void reduce2(int *g_idata, int *g_odata) {
     extern __shared__ int sdata[];
     // each thread loads one element from global to shared mem
     unsigned int tid = threadIdx.x;
-    unsigned int i = blockIdx.x*blockDim.x + threadIdx.x;
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     sdata[tid] = g_idata[i];
     __syncthreads();
     // do reduction in shared mem
@@ -78,10 +74,8 @@ __global__ void reduce2(int *g_idata, int *g_odata) {
         __syncthreads();
     }
     // write result for this block to global mem
-    if (tid == 0) 
-    {
+    if (tid == 0) {
         g_odata[blockIdx.x] = sdata[0];
-        // printf("result=%d\n", sdata[0]);
     }
 }
 
@@ -90,8 +84,8 @@ __global__ void reduce3(int *g_idata, int *g_odata) {
     extern __shared__ int sdata[];
     // each thread loads one element from global to shared mem
     unsigned int tid = threadIdx.x;
-    unsigned int i = blockIdx.x*blockDim.x + threadIdx.x;
-    sdata[tid] = g_idata[i] + g_idata[blockDim.x/2];
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    sdata[tid] = g_idata[i] + g_idata[blockDim.x / 2];
     __syncthreads();
     // do reduction in shared mem
     for(unsigned int s=blockDim.x / 4; s > 0; s >>= 1) {
@@ -163,8 +157,7 @@ __global__ void reduce5(int *g_idata, int *g_odata) {
         __syncthreads();
     }
 
-    if (tid < 32) 
-    {
+    if (tid < 32) {
         warpReduce(sdata, tid);
     }
     // Write result for this block to global memory
