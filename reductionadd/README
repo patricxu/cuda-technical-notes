@@ -109,7 +109,7 @@ for(unsigned int s=blockDim.x / 4; s > 0; s >>= 1) {
 ```
 
 ## Unrolling: reduce4
-We can further imporve the it by unrolling the loop. Since the loop control parameters and instructions are overhead.
+We can further imporve the it by unrolling the loop, since the loop control parameters and instructions are overhead.
 
 ```cpp
 #pragma unroll
@@ -119,7 +119,7 @@ for (unsigned int s = N / 4; s > 0; s >>= 1) {
 Note that for this pragma to work, N must be a const value so that the compiler can infer the loop number.
 
 ## Unrolling Last Warp: reduce5
-Consider when $s<=32$, there are only first 32 threads working, and they are in the same warp. That means all the threads in the same warp executes in order so we need not to synchronize them and no need to chose the active threads with "if". 
+Consider when $s<=32$, there are only first 32 threads working, and they are in the same warp. That means all the threads in the same warp executes in order so we need not to synchronize them and chose the active threads with "if" clause. 
 
 ```cpp
 __device__ void warpReduce(volatile int* sdata, unsigned int tid) {
@@ -160,10 +160,10 @@ __global__ void reduce5(int *g_idata, int *g_odata) {
 }
 ```
 
-Note that the volatile key word is used which tells the compiler do not optimize so that the operation on the memory is restrictly as it ought to be.
+Note that the volatile key word is used to tell the compiler do not optimize so that the operation on the memory is restrictly as it ought to be.
 
 # Performance
- The experiments were done on laptop, intel i9 13900, 96G, GeForce 4060, 8G.
+Experiments were conducted on a laptop with an Intel i9 13900 CPU, 96GB RAM, and GeForce 4060 GPU with 8GB VRAM.
 
 | Functions | Avg Time(ms) | Strategy|
 |-----------|--------------|---------|
@@ -174,4 +174,4 @@ Note that the volatile key word is used which tells the compiler do not optimize
 | reduce4| 0.0028|Unrolling: reduce4|
 | reduce5| 0.0022|Unrolling Last Warp|
 
-We can see the performance gain of adepting non-divergent and unrolling-last-warp strategy is very significant whereas the others are slight.
+The performance gains of adopting non-divergent and unrolling-last-warp strategies are significant, whereas others show slight improvements.
