@@ -160,7 +160,8 @@ __global__ void reduce5(int *g_idata, int *g_odata) {
 }
 ```
 
-Note that the volatile key word is used to tell the compiler do not optimize so that the operation on the memory is restrictly as it ought to be.
+Note that the volatile key word is used to tell the compiler do not optimize so that the operation on the memory is restrictly as it ought to be, if the threads in the warp are non-divergent. However, the order of execution of sub-warps after a warp-divergence is UNDEFINED.
+
 
 # Performance
 Experiments were conducted on a laptop with an Intel i9 13900 CPU, 96GB RAM, and GeForce 4060 GPU with 8GB VRAM.
@@ -175,3 +176,7 @@ Experiments were conducted on a laptop with an Intel i9 13900 CPU, 96GB RAM, and
 | reduce5| 0.0022|Unrolling Last Warp|
 
 The performance gains of adopting non-divergent and unrolling-last-warp strategies are significant, whereas others show slight improvements.
+
+# Reference
+https://developer.download.nvidia.cn/assets/cuda/files/reduction.pdf
+https://stackoverflow.com/questions/22939034/block-reduction-in-cuda/31730429#31730429
