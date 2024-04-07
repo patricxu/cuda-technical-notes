@@ -61,6 +61,7 @@ CUDA Technical Notes is licensed under the [MIT License](LICENSE), allowing for 
 ## Reference
 
 https://docs.nvidia.com/cuda/cuda-c-programming-guide
+
 https://docs.nvidia.com/cuda/cuda-c-best-practices-guide
 
 
