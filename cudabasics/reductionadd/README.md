@@ -13,7 +13,7 @@ The "-i" parameter indicates the iteration times of the function and "-r" means 
 
 Add reduction are common. In CUDA context, threads run in parallel adding the neigbor value in s distance to itself. 
 
-![Interleaved Addressing](/pics/interleaved_addresssing.png)
+![Interleaved Addressing](pics/interleaved_addresssing.png)
 
 ```cpp
 __global__ void reduce0(int *g_idata, int *g_odata) {
@@ -63,7 +63,7 @@ However the non-divergent has serious bank-conflict problem in early stage of th
 
 To alleviate bank conflicts in early stages we can use sequential addressing stratage.
 
-![Sequenial Addressing](/pics/sequential_addressing.png)
+![Sequenial Addressing](pics/sequential_addressing.png)
 
 ```cpp
 __global__ void reduce2(int *g_idata, int *g_odata) {
