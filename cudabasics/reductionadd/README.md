@@ -5,9 +5,9 @@ The section describes add reduction in CUDA. There are 6 reducntion kernels from
 ```shell
 cd reductionadd
 make all
-./reductionadd.exe -i 10 -r 0
+./reductionadd.exe -r 0 -s 1025
 ```
-The "-i" parameter indicates the iteration times of the function and "-r" means which reduce function to run from 0 to 5.
+The "-s" parameter indicates the input vector length  and "-r" means which reduce function to run from 0 to 5.
 
 ## The Naive Version: reduce0
 
@@ -70,7 +70,7 @@ __global__ void reduce2(int *g_idata, int *g_odata) {
     extern __shared__ int sdata[];
     // each thread loads one element from global to shared mem
     unsigned int tid = threadIdx.x;
-    unsigned int i = blockIdx.x*blockDim.x + threadIdx.x;
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     sdata[tid] = g_idata[i];
     __syncthreads();
     // do reduction in shared mem
@@ -102,7 +102,7 @@ for(unsigned int s=blockDim.x / 2; s > 0; s >>= 1) {
 ```
 with
 ```cpp
-sdata[tid] = g_idata[i] + g_idata[blockDim.x / 2];
+sdata[tid] = g_idata[i] + g_idata[i + blockDim.x / 2];
 __syncthreads();
 // do reduction in shared mem
 for(unsigned int s=blockDim.x / 4; s > 0; s >>= 1) {
@@ -138,7 +138,7 @@ __global__ void reduce5(int *g_idata, int *g_odata) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
 
     // Load element from global memory to shared memory
-    sdata[tid] = g_idata[i] + g_idata[blockDim.x / 2];
+    sdata[tid] = g_idata[i] + g_idata[i + blockDim.x / 2];
     __syncthreads();
 
     // Perform reduction in shared memory using a binary tree approach
@@ -164,7 +164,7 @@ Note that the volatile key word is used to tell the compiler do not optimize so 
 
 
 # Performance
-Experiments were conducted on a laptop with an Intel i9 13900 CPU, 96GB RAM, and GeForce 4060 GPU with 8GB VRAM.
+Experiments were conducted on a laptop with an Intel i9 13900 CPU, 96GB RAM, and GeForce 4060 GPU with 8GB device RAM.
 
 | Functions | Avg Time(ms) | Strategy|
 |-----------|--------------|---------|
