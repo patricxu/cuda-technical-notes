@@ -1,12 +1,15 @@
 #include <tuple>
 #include <stdio.h>
 #include <string>
+#include "utils.hpp"
+
 using namespace std;
 
 std::tuple<int, int> parseCommandLineArguments(int argc, char *argv[])
 {
     int iteration = 10;
     int reductionNum = 0;
+    int arraySize = N;
 
     for(int i = 1; i < argc; i++)
     {
@@ -21,7 +24,12 @@ std::tuple<int, int> parseCommandLineArguments(int argc, char *argv[])
         {
             reductionNum = atoi(value.c_str());
         }
+        else if (option.compare("-s") == 0)
+        {
+            arraySize = atoi(value.c_str());
+        }
+        
     }
 
-    return {iteration, reductionNum};
+    return {reductionNum, arraySize};
 }
