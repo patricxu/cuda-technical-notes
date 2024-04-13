@@ -1,5 +1,7 @@
 #include <iostream>
 #include <cuda_runtime.h>
+#include <cmath>
+#include <chrono> // For timing
 #include "utils.hpp"
 // #include "reductionadd.hpp"
 
@@ -33,7 +35,6 @@ __global__ void reduce0(int *g_idata, int inLen, int *g_odata) {
     // write result for this block to global mem
     if (tid == 0){
         g_odata[blockIdx.x] = sdata[0];
-        printf("result=%d\n", sdata[0]);
     }
 }
 
@@ -79,7 +80,6 @@ __global__ void reduce2(int *g_idata, int inLen, int *g_odata) {
     // write result for this block to global mem
     if (tid == 0) {
         g_odata[blockIdx.x] = sdata[0];
-        printf("result=%d\n", sdata[0]);
     }
 }
 
@@ -103,7 +103,6 @@ __global__ void reduce3(int *g_idata, int inLen, int *g_odata) {
     if (tid == 0) 
     {
         g_odata[blockIdx.x] = sdata[0];
-        printf("result=%d\n", sdata[0]);
     }
 }
 
@@ -221,31 +220,42 @@ __global__ void reduce6(int *g_idata, int inLen, int *g_odata) {
     }
 }
 
+int *d_in_extend = nullptr;
 
 void callKernel(int reductioinNum, int *d_in, int inLen, int *d_out, dim3 blockDim, dim3 threadDim) {
-    printf("call kernel reductioinNum=%d, inLen=%d, blockDim.x=%d, threadDim.x=%d\n", reductioinNum, inLen, blockDim.x, threadDim.x);
+    // printf("call kernel reductioinNum=%d, inLen=%d, blockDim.x=%d, threadDim.x=%d\n", reductioinNum, inLen, blockDim.x, threadDim.x);
+
+    if (d_in_extend == nullptr){
+        CHECK_CUDA_ERROR(cudaMalloc((void**)&d_in_extend, N * sizeof(int)));
+    }
+
+    if (inLen < N){
+        CHECK_CUDA_ERROR(cudaMemset(d_in_extend, 0, N * sizeof(int)));
+        CHECK_CUDA_ERROR(cudaMemcpy((void*)d_in_extend, d_in, inLen * sizeof(int), cudaMemcpyDeviceToDevice));
+    }
+
     switch (reductioinNum)
         {
         case 0:
-            reduce0<<<blockDim, threadDim, N * sizeof(int)>>>(d_in, inLen, d_out);
+            reduce0<<<blockDim, threadDim, N * sizeof(int)>>>(inLen < N ? d_in_extend : d_in, inLen, d_out);
             break;
         case 1:
-            reduce1<<<blockDim, threadDim, N * sizeof(int)>>>(d_in, inLen, d_out);
+            reduce1<<<blockDim, threadDim, N * sizeof(int)>>>(inLen < N ? d_in_extend : d_in, inLen, d_out);
             break;
         case 2:
-            reduce2<<<blockDim, threadDim, N * sizeof(int)>>>(d_in, inLen, d_out);
+            reduce2<<<blockDim, threadDim, N * sizeof(int)>>>(inLen < N ? d_in_extend : d_in, inLen, d_out);
             break;
         case 3:
-            reduce3<<<blockDim, threadDim, N * sizeof(int)>>>(d_in, inLen, d_out);
+            reduce3<<<blockDim, threadDim, N * sizeof(int)>>>(inLen < N ? d_in_extend : d_in, inLen, d_out);
             break;
         case 4:
-            reduce4<<<blockDim, threadDim, N * sizeof(int)>>>(d_in, inLen, d_out);
+            reduce4<<<blockDim, threadDim, N * sizeof(int)>>>(inLen < N ? d_in_extend : d_in, inLen, d_out);
             break;
         case 5:
-            reduce5<<<blockDim, threadDim, N * sizeof(int)>>>(d_in, inLen, d_out);
+            reduce5<<<blockDim, threadDim, N * sizeof(int)>>>(inLen < N ? d_in_extend : d_in, inLen, d_out);
             break;
         case 6:
-            reduce6<N><<<blockDim, threadDim, N * sizeof(int)>>>(d_in, inLen, d_out);
+            reduce6<N><<<blockDim, threadDim, N * sizeof(int)>>>(inLen < N ? d_in_extend : d_in, inLen, d_out);
         default:
             break;
     }
@@ -256,81 +266,139 @@ void callKernel(int reductioinNum, int *d_in, int inLen, int *d_out, dim3 blockD
     if (err != cudaSuccess){
         fprintf(stderr, "Failed to launch convert kernel (error code %s)!\n", cudaGetErrorString(err));
         exit(EXIT_FAILURE);
-    }
+    }    
+}
+
+
+void cpuReduce(int *in, int inLen) {
+    auto start = std::chrono::high_resolution_clock::now();
+
+    int sum = 0;
+    for (int i = 0; i < inLen; i++)
+        sum += in[i];
+    
+    // Timing end
+    auto end = std::chrono::high_resolution_clock::now();
+
+    // Calculate execution time in milliseconds
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    double milliseconds = duration.count();
+
+    // Print the execution time
+    std::cout << "sum=" << sum << " CPU Execution time: " << milliseconds << " milliseconds" << std::endl;
 }
 
 int main(int argc, char** argv) {
     int *h_in;
     int *h_out;
-    int numBlocks = 0;
-    int *d_partialSum;
+    int *d_in, *d_out;
+    int *d_partialBuff, *d_partialSum;
+    int dPartialBuffLen = 0;
+    int dArraySize = 0;
     auto [reductioinNum, arraySize] = parseCommandLineArguments(argc, argv);
 
     printf("begin with reduction%d, arraySize=%d\n", reductioinNum, arraySize);
 
-    int upBndArraySizePwOfTwo = 1;
-    do{
-        upBndArraySizePwOfTwo <<= 1;
-    } while (upBndArraySizePwOfTwo < arraySize);
-
-    h_in = (int*)malloc(upBndArraySizePwOfTwo * sizeof(int));
-
-    numBlocks = (upBndArraySizePwOfTwo + N - 1) / N;
+    h_in = (int*)malloc(arraySize * sizeof(int));
 
     // Initialize array data
-    for (int i = 0; i < upBndArraySizePwOfTwo; ++i) {
-        if (i < arraySize) h_in[i] = 1;
-        else h_in[i] = 0;
+    for (int i = 0; i < arraySize; ++i) {
+        h_in[i] = 1;
     }
 
-    int sum = 0;
-    for (int i = 0; i < upBndArraySizePwOfTwo; i++) {
-        sum += h_in[i];
+    cpuReduce(h_in, arraySize);
+
+    h_out = (int*)malloc(sizeof(int));
+
+    // Adjest the device array size
+    for (int mask = (1 << INT32_WIDTH - 2), i = 0; mask > 0; mask >>= 1, i++) {
+        if (arraySize & mask){
+            if (mask < N) {
+                dArraySize += N;
+                dPartialBuffLen += 1;
+                break;
+            }
+            else{
+                dPartialBuffLen += mask / N;
+                dArraySize += mask;
+            }
+        }
     }
-    printf("sum=%d\n", sum);
 
-    int *d_in, *d_out;
-    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_in, upBndArraySizePwOfTwo * sizeof(int)));
-    CHECK_CUDA_ERROR(cudaMemcpy(d_in, h_in, upBndArraySizePwOfTwo * sizeof(int), cudaMemcpyHostToDevice));
-    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_out, sizeof(int)));
-    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_partialSum, numBlocks * sizeof(int)));
-
-    printf("The size of extended input array is %d\n", upBndArraySizePwOfTwo);
-    printf("The size of partial sum array is %d\n", numBlocks);
-
+    printf("dArraySize=%d, dPartialBuffLen=%d\n", dArraySize, dPartialBuffLen);
+    
     dim3 threadDim(N);
-    dim3 blockDim(numBlocks, 1);
+    dim3 blockDim_1(1);
+    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_in, dArraySize * sizeof(int)));
+    CHECK_CUDA_ERROR(cudaMemset(d_in, 0, dArraySize * sizeof(int)));
+    CHECK_CUDA_ERROR(cudaMemcpy(d_in, h_in, arraySize * sizeof(int), cudaMemcpyHostToDevice));
+
+    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_out, sizeof(int)));
+    CHECK_CUDA_ERROR(cudaMemset(d_out, 0, sizeof(int)));
+
+    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_partialBuff, dPartialBuffLen * sizeof(int)));
+    CHECK_CUDA_ERROR(cudaMemset(d_partialBuff, 0, dPartialBuffLen * sizeof(int)));
+
+    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_partialSum, INT32_WIDTH * sizeof(int)));
+    CHECK_CUDA_ERROR(cudaMemset(d_partialSum, 0, INT32_WIDTH * sizeof(int)));
 
     cudaEvent_t start, end;
     CHECK_CUDA_ERROR(cudaEventCreate(&start));
     CHECK_CUDA_ERROR(cudaEventCreate(&end));
     CHECK_CUDA_ERROR(cudaEventRecord(start));
 
-    int * d_tmp_in = d_in;
-    int * d_tmp_out = d_partialSum;
-    for (int j = upBndArraySizePwOfTwo; j > 1; j /= threadDim.x){
-        callKernel(reductioinNum, d_tmp_in, j, d_tmp_out, blockDim, threadDim);
-        d_out = d_tmp_out;
-        d_tmp_out = d_tmp_in;
-        d_tmp_in = d_out;
-        blockDim.x = blockDim.x / threadDim.x + 1;
+    for (int mask = (1 << INT32_WIDTH - 2), *d_partialBuffCurosr = d_partialBuff, *d_inCursor = d_in; mask > 0; mask >>= 1) {
+        if (dArraySize & mask) {
+            if (mask < N) {
+                //launch the kernel with coalsed input data. should be the final kernel call
+                callKernel(reductioinNum, d_inCursor, N, &d_partialSum[(int)log2(N)], blockDim_1, threadDim);
+                break;
+            }
+            else{
+                dim3 blockDim(mask / N);
+                int * d_tmp_in = d_inCursor;
+                int * d_tmp_out = d_partialBuffCurosr;
+                int * d_paritalSum_out;
+                for(int j = mask; j > 1; j /= N){
+                    callKernel(reductioinNum, d_tmp_in, j, d_tmp_out, blockDim, threadDim);
+                    d_paritalSum_out = d_tmp_out;
+                    d_tmp_out = d_tmp_in;
+                    d_tmp_in = d_paritalSum_out;
+                    blockDim.x = blockDim.x / threadDim.x + 1;
+                }
+                int h_paritalSum_out;
+                CHECK_CUDA_ERROR(cudaMemcpy((void*)&h_paritalSum_out, d_paritalSum_out, sizeof(int), cudaMemcpyDeviceToHost));
+                // printf("h_paritalSum_out=%d\n", h_paritalSum_out);
+                CHECK_CUDA_ERROR(cudaMemcpy((void*)&d_partialSum[(int)log2(mask)], d_paritalSum_out, sizeof(int), cudaMemcpyDeviceToDevice));
+                d_inCursor += mask;
+                d_partialBuffCurosr += mask / N;
+            }
+        }
     }
 
+    callKernel(reductioinNum, d_partialSum, INT32_WIDTH, d_out, blockDim_1, threadDim);
     CHECK_CUDA_ERROR(cudaMemcpy((void*)h_out, (void*)d_out, sizeof(int), cudaMemcpyDeviceToHost));
     CHECK_CUDA_ERROR(cudaEventRecord(end));
     CHECK_CUDA_ERROR(cudaEventSynchronize(end));
 
-    printf("sum=%d\n", h_out[0]);
     float milliseconds = 0;
     CHECK_CUDA_ERROR(cudaEventElapsedTime(&milliseconds, start, end));
-    printf("kernel reduction%d excution time total=%f\n", reductioinNum, milliseconds);
+    printf("sum=%d GPU execution time total=%fms\n", *h_out, milliseconds);
 
     CHECK_CUDA_ERROR(cudaEventDestroy(start));
     CHECK_CUDA_ERROR(cudaEventDestroy(end));
+    
     CHECK_CUDA_ERROR(cudaFree(d_partialSum));
+    CHECK_CUDA_ERROR(cudaFree(d_partialBuff));
     CHECK_CUDA_ERROR(cudaFree(d_in));
+    CHECK_CUDA_ERROR(cudaFree(d_out));
+
+    if (d_in_extend != nullptr)
+        CHECK_CUDA_ERROR(cudaFree(d_in_extend));
+
+    free(h_in);
+    free(h_out);
 
     return 0;
 }
-
 
