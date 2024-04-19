@@ -6,17 +6,6 @@
 // #include "reductionadd.hpp"
 
 
-#define CHECK_CUDA_ERROR(func) \
-    do { \
-        cudaError_t error = (func); \
-        if (error != cudaSuccess) { \
-            std::cerr << "CUDA error at " << __FILE__ << ":" << __LINE__ << ": " \
-                      << cudaGetErrorString(error) << std::endl; \
-            exit(EXIT_FAILURE); \
-        } \
-    } while(0)
-
-
 __global__ void reduce0(int *g_idata, int inLen, int *g_odata) {
     extern __shared__ int sdata[];
 
@@ -269,24 +258,6 @@ void callKernel(int reductioinNum, int *d_in, int inLen, int *d_out, dim3 blockD
     }    
 }
 
-
-void cpuReduce(int *in, int inLen) {
-    auto start = std::chrono::high_resolution_clock::now();
-
-    int sum = 0;
-    for (int i = 0; i < inLen; i++)
-        sum += in[i];
-    
-    // Timing end
-    auto end = std::chrono::high_resolution_clock::now();
-
-    // Calculate execution time in milliseconds
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    double milliseconds = duration.count();
-
-    // Print the execution time
-    std::cout << "sum=" << sum << " CPU Execution time: " << milliseconds << " milliseconds" << std::endl;
-}
 
 int main(int argc, char** argv) {
     int *h_in;
