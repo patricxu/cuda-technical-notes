@@ -5,3 +5,4 @@ using namespace std;
 
 void testCase1();
 void testCase2();
+void testCase3();

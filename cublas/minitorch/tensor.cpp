@@ -56,9 +56,12 @@ Tensor::~Tensor() {
     CHECK_CUDA_ERROR(cudaFree(d_grad));
 }
 
-void Tensor::_backward(std::vector<float> gradInput) {
-    if (gradInput.size() > 0) {
-        assignGradient(gradInput);
+void Tensor::_backward(float *parentGrad, int parentGradLen) {
+    float *d_parentGrad = nullptr;
+
+    if (parentGrad) {
+        CHECK_CUDA_ERROR(cudaMallocAsync(&d_parentGrad, parentGradLen * sizeof(float), stream));
+        CHECK_CUDA_ERROR(cudaMemcpyAsync(d_parentGrad, parentGrad, parentGradLen * sizeof(float), cudaMemcpyHostToDevice, stream));
     }
 
     auto left = std::get<0>(_prev);
@@ -68,14 +71,27 @@ void Tensor::_backward(std::vector<float> gradInput) {
         float alpha = 1.0;
         CUBLAS_CHECK(cublasSaxpy(cublasH, grad.size(), &alpha, d_grad, 1, left->d_grad, 1));
         CUBLAS_CHECK(cublasSaxpy(cublasH, grad.size(), &alpha, d_grad, 1, right->d_grad, 1));
+
+        if (d_parentGrad) {
+            CUBLAS_CHECK(cublasSscal(cublasH, grad.size(), d_parentGrad, left->d_grad, 1));
+            CUBLAS_CHECK(cublasSscal(cublasH, grad.size(), d_parentGrad, right->d_grad, 1));
+        }
     }
     else if (_op == "dot") {
         const float *scalar = d_grad;
-        CHECK_CUDA_ERROR(cudaMemcpyAsync(left->d_grad, right->d_data, right->data.size() * sizeof(float), cudaMemcpyDeviceToDevice, stream));
-        scalarMulVect(scalar, left->d_grad, left->grad.size(), stream);
+        saxyp(scalar, right->d_data, left->d_grad, left->data.size(), stream);
+        saxyp(scalar, left->d_data, right->d_grad, right->data.size(), stream);
+        
+        //cublas will core dump when pass d_grad as alpha parameter
+        // CUBLAS_CHECK(cublasSaxpy(cublasH, right->data.size(), d_grad, right->d_data, 1, left->d_grad, 1));
+        // CUBLAS_CHECK(cublasSaxpy(cublasH, left->data.size(), scalar, left->d_data, 1, right->d_grad, 1));
 
-        CHECK_CUDA_ERROR(cudaMemcpyAsync(right->d_grad, left->d_data, left->data.size() * sizeof(float), cudaMemcpyDeviceToDevice, stream));
-        scalarMulVect(scalar, right->d_grad, right->grad.size(), stream);
+        if (d_parentGrad) {
+            sscal(d_parentGrad, left->d_grad, left->data.size(), stream);
+            sscal(d_parentGrad, right->d_grad, right->data.size(), stream);
+            // CUBLAS_CHECK(cublasSscal(cublasH, grad.size(), d_parentGrad, left->d_grad, 1));
+            // CUBLAS_CHECK(cublasSscal(cublasH, grad.size(), d_parentGrad, right->d_grad, 1));
+        }
     }
     else if (_op == "-")
     {
@@ -84,6 +100,7 @@ void Tensor::_backward(std::vector<float> gradInput) {
             CHECK_CUDA_ERROR(cudaMemcpyAsync(right->d_grad, d_grad, grad.size() * sizeof(float), cudaMemcpyDeviceToDevice, stream));
         }
         else {
+            // CUBLAS_CHECK(cublasSaxpy(cublasH, grad.size(), 
             CHECK_CUDA_ERROR(cudaMemcpyAsync(left->d_grad, d_grad, grad.size() * sizeof(float), cudaMemcpyDeviceToDevice, stream));
         }
     }
@@ -101,22 +118,23 @@ std::string Tensor::repr() {
 
 Tensor& Tensor::operator+(Tensor &other) {
     float alpha = 1.0;
-    Tensor *out = new Tensor(other.data, std::tuple{this, &other}, "+");
-    CUBLAS_CHECK(cublasSaxpy_v2(cublasH, this->data.size(), &alpha, d_data, 1, out->d_data, 1));
+    Tensor *out = new Tensor(other.data.size(), std::tuple{this, &other}, "+");
+    CUBLAS_CHECK(cublasSaxpy(cublasH, this->data.size(), &alpha, d_data, 1, out->d_data, 1));
     return *out;
 }
 
 Tensor& Tensor::operator-(Tensor &other) {
     float alpha = -1.0;
-    Tensor *out = new Tensor(other.data, std::tuple{this, &other}, "-");
-    CUBLAS_CHECK(cublasSaxpy_v2(cublasH, this->data.size(), &alpha, d_data, 1, out->d_data, 1));
+    Tensor *out = new Tensor(other.data.size(), std::tuple{this, &other}, "-");
+    CUBLAS_CHECK(cublasSaxpy(cublasH, this->data.size(), &alpha, d_data, 1, out->d_data, 1));
     return *out;
 }
 
 Tensor& Tensor::operator-() {
     float scalar = -1.0;
-    scalarMulVect(&scalar, d_data, data.size(), stream);
-    return *this;
+    Tensor *out = new Tensor(data, std::tuple{this, nullptr}, "-");
+   CUBLAS_CHECK(cublasSscal(cublasH, data.size(), &scalar, d_data, 1));
+    return *out;
 }
 
 Tensor& Tensor::dot(Tensor &other) {

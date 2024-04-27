@@ -30,7 +30,7 @@ public:
 
     ~Tensor();
 
-    void  _backward(std::vector<float> gradInput = {});
+    void  _backward(float* d_parentGrad = nullptr, int parentGradLen = 0);
 
     std::string repr();
 
