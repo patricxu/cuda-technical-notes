@@ -1,9 +1,13 @@
-// #include "kernels.cuh"
+#include "kernels.cuh"
 #include "runner.cuh"
 #include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <iomanip>
+
+
+#define CEIL_DIV(M, N) (((M) + (N)-1) / (N))
+
 
 float get_sec() {
   struct timeval time;
@@ -149,20 +153,20 @@ void runCublasTF32(cublasHandle_t handle, int M, int N, int K, float alpha,
                CUBLAS_COMPUTE_32F_FAST_TF32, CUBLAS_GEMM_DEFAULT_TENSOR_OP);
 }
 
-// void run_sgemm_naive(int M, int N, int K, float alpha, float *A, float *B,
-//                      float beta, float *C) {
-//   dim3 gridDim(CEIL_DIV(M, 32), CEIL_DIV(N, 32));
-//   dim3 blockDim(32, 32);
-//   sgemm_naive<<<gridDim, blockDim>>>(M, N, K, alpha, A, B, beta, C);
-// }
+void run_sgemm_naive(int M, int N, int K, float alpha, float *A, float *B,
+                     float beta, float *C) {
+  dim3 gridDim(CEIL_DIV(M, 32), CEIL_DIV(N, 32));
+  dim3 blockDim(32, 32);
+  sgemm_naive<<<gridDim, blockDim>>>(M, N, K, alpha, A, B, beta, C);
+}
 
-// void run_sgemm_coalesce(int M, int N, int K, float alpha, float *A, float *B,
-//                         float beta, float *C) {
-//   dim3 gridDim(CEIL_DIV(M, 32), CEIL_DIV(N, 32));
-//   dim3 blockDim(32 * 32);
-//   sgemm_global_mem_coalesce<32>
-//       <<<gridDim, blockDim>>>(M, N, K, alpha, A, B, beta, C);
-// }
+void run_sgemm_coalesce(int M, int N, int K, float alpha, float *A, float *B,
+                        float beta, float *C) {
+  dim3 gridDim(CEIL_DIV(M, 32), CEIL_DIV(N, 32));
+  dim3 blockDim(32 * 32);
+  sgemm_global_mem_coalesce<32>
+      <<<gridDim, blockDim>>>(M, N, K, alpha, A, B, beta, C);
+}
 
 // void run_sgemm_shared_mem_block(int M, int N, int K, float alpha, float *A,
 //                                 float *B, float beta, float *C) {
@@ -190,53 +194,79 @@ void runCublasTF32(cublasHandle_t handle, int M, int N, int K, float alpha,
 //       <<<gridDim, blockDim>>>(M, N, K, alpha, A, B, beta, C);
 // }
 
-// void runSgemm2DBlocktiling(int M, int N, int K, float alpha, float *A, float *B,
-//                            float beta, float *C) {
-//   const uint BK = 8;
-//   const uint TM = 8;
-//   const uint TN = 8;
-//   if (M >= 128 and N >= 128) {
-//     const uint BM = 128;
-//     const uint BN = 128;
-//     dim3 gridDim(CEIL_DIV(N, BN), CEIL_DIV(M, BM));
-//     dim3 blockDim((BM * BN) / (TM * TN));
-//     sgemm2DBlocktiling<BM, BN, BK, TM, TN>
-//         <<<gridDim, blockDim>>>(M, N, K, alpha, A, B, beta, C);
-//   } else {
-//     // this is a hacky solution to the underlying problem
-//     // of not having proper bounds checking in the kernel
-//     const uint BM = 64;
-//     const uint BN = 64;
-//     dim3 gridDim(CEIL_DIV(N, BN), CEIL_DIV(M, BM));
-//     dim3 blockDim((BM * BN) / (TM * TN));
-//     sgemm2DBlocktiling<BM, BN, BK, TM, TN>
-//         <<<gridDim, blockDim>>>(M, N, K, alpha, A, B, beta, C);
-//   }
-// }
+void runSgemm2DBlocktiling(int M, int N, int K, float alpha, float *A, float *B,
+                           float beta, float *C) {
+  const uint BK = 8;
+  const uint TM = 8;
+  const uint TN = 8;
+  if (M >= 128 and N >= 128) {
+    const uint BM = 128;
+    const uint BN = 128;
+    dim3 gridDim(CEIL_DIV(N, BN), CEIL_DIV(M, BM));
+    dim3 blockDim((BM * BN) / (TM * TN));
+    sgemm2DBlocktiling<BM, BN, BK, TM, TN>
+        <<<gridDim, blockDim>>>(M, N, K, alpha, A, B, beta, C);
+  } else {
+    // this is a hacky solution to the underlying problem
+    // of not having proper bounds checking in the kernel
+    const uint BM = 64;
+    const uint BN = 64;
+    dim3 gridDim(CEIL_DIV(N, BN), CEIL_DIV(M, BM));
+    dim3 blockDim((BM * BN) / (TM * TN));
+    sgemm2DBlocktiling<BM, BN, BK, TM, TN>
+        <<<gridDim, blockDim>>>(M, N, K, alpha, A, B, beta, C);
+  }
+}
 
-// void runSgemmVectorize(int M, int N, int K, float alpha, float *A, float *B,
-//                        float beta, float *C) {
-//   const uint BK = 8;
-//   const uint TM = 8;
-//   const uint TN = 8;
-//   if (M >= 128 and N >= 128) {
-//     const uint BM = 128;
-//     const uint BN = 128;
-//     dim3 gridDim(CEIL_DIV(N, BN), CEIL_DIV(M, BM));
-//     dim3 blockDim((BM * BN) / (TM * TN));
-//     sgemmVectorize<BM, BN, BK, TM, TN>
-//         <<<gridDim, blockDim>>>(M, N, K, alpha, A, B, beta, C);
-//   } else {
-//     // this is a hacky solution to the underlying problem
-//     // of not having proper bounds checking in the kernel
-//     const uint BM = 64;
-//     const uint BN = 64;
-//     dim3 gridDim(CEIL_DIV(N, BN), CEIL_DIV(M, BM));
-//     dim3 blockDim((BM * BN) / (TM * TN));
-//     sgemmVectorize<BM, BN, BK, TM, TN>
-//         <<<gridDim, blockDim>>>(M, N, K, alpha, A, B, beta, C);
-//   }
-// }
+
+void runSgemm2DBlocktilingV2(int M, int N, int K, float alpha, float *A, float *B,
+                           float beta, float *C) {
+  const uint BK = 8;
+  const uint TM = 8;
+  const uint TN = 8;
+  if (M >= 128 and N >= 128) {
+    const uint BM = 128;
+    const uint BN = 128;
+    dim3 gridDim(CEIL_DIV(N, BN), CEIL_DIV(M, BM));
+    dim3 blockDim((BM * BN) / (TM * TN));
+    sgemm2DBlocktilingV2<BM, BN, BK, TM, TN>
+        <<<gridDim, blockDim>>>(M, N, K, alpha, A, B, beta, C);
+  } else {
+    // this is a hacky solution to the underlying problem
+    // of not having proper bounds checking in the kernel
+    const uint BM = 64;
+    const uint BN = 64;
+    dim3 gridDim(CEIL_DIV(N, BN), CEIL_DIV(M, BM));
+    dim3 blockDim((BM * BN) / (TM * TN));
+    sgemm2DBlocktilingV2<BM, BN, BK, TM, TN>
+        <<<gridDim, blockDim>>>(M, N, K, alpha, A, B, beta, C);
+  }
+}
+
+
+void runSgemmVectorize(int M, int N, int K, float alpha, float *A, float *B,
+                       float beta, float *C) {
+  const uint BK = 8;
+  const uint TM = 8;
+  const uint TN = 8;
+  if (M >= 128 and N >= 128) {
+    const uint BM = 128;
+    const uint BN = 128;
+    dim3 gridDim(CEIL_DIV(N, BN), CEIL_DIV(M, BM));
+    dim3 blockDim((BM * BN) / (TM * TN));
+    sgemmVectorize<BM, BN, BK, TM, TN>
+        <<<gridDim, blockDim>>>(M, N, K, alpha, A, B, beta, C);
+  } else {
+    // this is a hacky solution to the underlying problem
+    // of not having proper bounds checking in the kernel
+    const uint BM = 64;
+    const uint BN = 64;
+    dim3 gridDim(CEIL_DIV(N, BN), CEIL_DIV(M, BM));
+    dim3 blockDim((BM * BN) / (TM * TN));
+    sgemmVectorize<BM, BN, BK, TM, TN>
+        <<<gridDim, blockDim>>>(M, N, K, alpha, A, B, beta, C);
+  }
+}
 
 // void runSgemmResolveBankConflicts(int M, int N, int K, float alpha, float *A,
 //                                   float *B, float beta, float *C) {
@@ -508,10 +538,10 @@ void run_kernel(int kernel_num, int M, int N, int K, float alpha, float *A,
     runCublasFP32(handle, M, N, K, alpha, A, B, beta, C);
     break;
   case 1:
-    // run_sgemm_naive(M, N, K, alpha, A, B, beta, C);
+    run_sgemm_naive(M, N, K, alpha, A, B, beta, C);
     break;
   case 2:
-    // run_sgemm_coalesce(M, N, K, alpha, A, B, beta, C);
+    run_sgemm_coalesce(M, N, K, alpha, A, B, beta, C);
     break;
   case 3:
     // run_sgemm_shared_mem_block(M, N, K, alpha, A, B, beta, C);
@@ -520,10 +550,12 @@ void run_kernel(int kernel_num, int M, int N, int K, float alpha, float *A,
     // runSgemm1DBlocktiling(M, N, K, alpha, A, B, beta, C);
     break;
   case 5:
-    // runSgemm2DBlocktiling(M, N, K, alpha, A, B, beta, C);
+    runSgemm2DBlocktiling(M, N, K, alpha, A, B, beta, C);
     break;
   case 6:
-    // runSgemmVectorize(M, N, K, alpha, A, B, beta, C);
+      // runSgemm2DBlocktilingV2(M, N, K, alpha, A, B, beta, C);
+
+    runSgemmVectorize(M, N, K, alpha, A, B, beta, C);
     break;
   case 7:
     // runSgemmResolveBankConflicts(M, N, K, alpha, A, B, beta, C);
