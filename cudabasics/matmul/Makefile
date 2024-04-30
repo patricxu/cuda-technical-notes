@@ -1,6 +1,6 @@
 IDIR=./
 COMPILER=nvcc
-COMPILER_FLAGS=-I$(IDIR) -I/usr/local/cuda/include -lcuda -lcublas --std c++17 -O3
+COMPILER_FLAGS=-I$(IDIR) -I/usr/local/cuda/include -lcuda -lcublas --std c++17 --generate-code=arch=compute_89,code=[compute_89,sm_89] -O3
 
 .PHONY: clean build run
 

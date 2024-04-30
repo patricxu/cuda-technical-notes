@@ -87,4 +87,4 @@ __global__ void __launch_bounds__((BM * BN) / (TM * TN), 1)
 
             reinterpret_cast<float4*>(C + (threadRow * TM + i) * N + threadCol * TN + j)[0] = tmp;
         }
-}
+};
