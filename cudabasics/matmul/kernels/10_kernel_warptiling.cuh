@@ -7,6 +7,8 @@
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 
+// #define PAD 1
+#define TRANSPOSE_AS
 #define CEIL_DIV(M, N) (((M) + (N)-1) / (N))
 const int WARPSIZE = 32; // warpSize is not constexpr
 
@@ -18,10 +20,20 @@ namespace wt {
                                 int innerRowB, int innerColB){
         for(int i = 0; i < BM; i += ROWSTRIDEA) {
             const float4 tmp = reinterpret_cast<const float4 *>(&A[(innerRowA + i) * K + innerColA * 4])[0];
+
+#ifdef TRANSPOSE_AS
             As[(innerColA * 4 + 0) * BM + innerRowA + i] = tmp.x;
             As[(innerColA * 4 + 1) * BM + innerRowA + i] = tmp.y;
             As[(innerColA * 4 + 2) * BM + innerRowA + i] = tmp.z;
             As[(innerColA * 4 + 3) * BM + innerRowA + i] = tmp.w;
+#elif PAD
+            As[(innerColA * 4 + 0) * (BM + PAD) + innerRowA + i] = tmp.x;
+            As[(innerColA * 4 + 1) * (BM + PAD) + innerRowA + i] = tmp.y;
+            As[(innerColA * 4 + 2) * (BM + PAD) + innerRowA + i] = tmp.z;
+            As[(innerColA * 4 + 3) * (BM + PAD) + innerRowA + i] = tmp.w;
+#else
+            reinterpret_cast<float4 *>(&As[(innerRowA + i) * BK + innerColA * 4])[0] = tmp;
+#endif
         }
 
         for(int i = 0; i < BK; i += ROWSTRIDEB) {
@@ -40,8 +52,15 @@ namespace wt {
         for(int dotIdx = 0; dotIdx < BK; ++dotIdx) {
             for(int wSubRowIdx = 0; wSubRowIdx < WMITER; ++wSubRowIdx) 
                 for(int i = 0; i < TM; ++i) {
+#ifdef TRANSPOSE_AS
                     regM[wSubRowIdx * TM + i] = As[(dotIdx * BM) + 
                         warpRow * WM + wSubRowIdx * WSUBM + threadRowInWarp * TM + i];
+#elif PAD 
+                    regM[wSubRowIdx * TM + i] = As[(dotIdx * (BM + PAD)) + 
+                        warpRow * WM + wSubRowIdx * WSUBM + threadRowInWarp * TM + i];
+#else
+                    regM[wSubRowIdx * TM + i] = As[(warpRow * WM + wSubRowIdx * WSUBM + threadRowInWarp * TM + i) * BK + dotIdx];
+#endif
                 }
 
             for(int wSubColIdx = 0; wSubColIdx < WNITER; ++wSubColIdx)
@@ -97,7 +116,11 @@ __global__ void __launch_bounds__(NUM_THREADS)
     int threadRowInwarp = threadIdxInWarp / (WSUBN / TN);
 
     // allocate space for the current blocktile in SMEM
+#ifdef PAD
+    __shared__ float smemA[(BM + PAD) * BK];
+#else
     __shared__ float smemA[BM * BK];
+#endif
     __shared__ float smemB[BK * BN];
 
     // Move blocktile to beginning of A's row and B's column
