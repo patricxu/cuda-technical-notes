@@ -1,20 +1,24 @@
 #include <cuda_runtime.h>
 #include <iostream>
+#include <cooperative_groups.h>
 #include "utils.hpp"
 
 #define WARP_SIZE 32
 #define MASK 0xFFFFFFFF
 
 using namespace std;
+namespace cg = cooperative_groups;
 
-
-__global__ void reduce8(int *g_idata, int inLen, int *g_odata) {
+__global__ void reduce9(int *g_idata, int inLen, int *g_odata) {
     __shared__ int sdata[WARP_SIZE];
 
-    unsigned int tid = threadIdx.x;
-    unsigned int gTid = blockIdx.x * blockDim.x + threadIdx.x;
+    auto tb = cg::this_thread_block();
+    auto g = cg::this_grid();
+    auto warp = cg::tiled_partition<WARP_SIZE>(tb);
+    unsigned int tid = tb.thread_rank();
+    unsigned int gTid = g.thread_rank();
     unsigned int i = gTid;
-    unsigned int gridSize = blockDim.x * gridDim.x;
+    unsigned int gridSize = g.size();
     unsigned int lane = tid % WARP_SIZE;
     unsigned int warpId = tid / WARP_SIZE;
     int val = 0;
@@ -27,13 +31,13 @@ __global__ void reduce8(int *g_idata, int inLen, int *g_odata) {
     //warp level reduce
     #pragma unroll
     for (unsigned int s = WARP_SIZE / 2; s > 0; s >>= 1) {
-        val += __shfl_down_sync(MASK, val, s);
+        val += warp.shfl_down(val, s);
     }
 
     if (lane == 0){
         sdata[warpId] = val;
     }
-    __syncthreads();
+    tb.sync();
 
     if (warpId == 0){
         val = (tid < blockDim.x / WARP_SIZE) ? sdata[lane] : 0;
@@ -41,7 +45,7 @@ __global__ void reduce8(int *g_idata, int inLen, int *g_odata) {
         //block level reduce
         #pragma unroll
         for (unsigned int s = WARP_SIZE / 2; s > 0; s >>= 1) {
-            val += __shfl_down_sync(MASK, val, s);
+            val += warp.shfl_down(val, s);
         }    
             //grid level reduce
         if (tid == 0){
@@ -52,7 +56,7 @@ __global__ void reduce8(int *g_idata, int inLen, int *g_odata) {
 
 
 void callKernel(dim3 blocks, dim3 threadsPerBlock, int *d_data, int arraySize, int *d_partialSum) {
-    reduce8<<<blocks, threadsPerBlock, N * sizeof(int)>>>(d_data, arraySize, d_partialSum);
+    reduce9<<<blocks, threadsPerBlock, N * sizeof(int)>>>(d_data, arraySize, d_partialSum);
 
     // Check the call was successful
     cudaDeviceSynchronize();
@@ -83,7 +87,7 @@ int main(int argc, char **argv) {
     cudaDeviceProp deviceProp;
     CHECK_CUDA_ERROR(cudaGetDeviceProperties(&deviceProp, dev));
     int numBlocks;
-    CHECK_CUDA_ERROR(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocks, reduce8, N, WARP_SIZE * sizeof(int)));
+    CHECK_CUDA_ERROR(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocks, reduce9, N, WARP_SIZE * sizeof(int)));
     std::cout << "occupancy max active blocks per sm is " << numBlocks << endl;
     // dim3 blocks(min(deviceProp.multiProcessorCount, (arraySize + N - 1) / N)); 
     dim3 blocks(numBlocks * deviceProp.multiProcessorCount);
